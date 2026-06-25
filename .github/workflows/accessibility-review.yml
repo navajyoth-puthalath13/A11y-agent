@@ -1,0 +1,58 @@
+name: Accessibility Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  models: read
+
+jobs:
+  accessibility-review:
+    name: Review accessibility changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Run accessibility review agent
+        env:
+          GITHUB_MODELS_TOKEN: ${{ github.token }}
+          GITHUB_MODELS_MODEL: openai/gpt-4.1-mini
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: npm start | tee accessibility-review.json
+
+      - name: Add report to job summary
+        if: always()
+        run: |
+          {
+            echo "## Accessibility Review Agent"
+            echo
+            if [ -f accessibility-review.json ]; then
+              echo '```json'
+              cat accessibility-review.json
+              echo '```'
+            else
+              echo "No report was produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

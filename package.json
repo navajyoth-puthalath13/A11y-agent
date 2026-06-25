@@ -1,0 +1,28 @@
+{
+  "name": "a11y-pr-review-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only AI accessibility review agent for GitHub pull requests.",
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.1.1",
+    "dotenv": "^16.4.7",
+    "lucide-react": "^1.21.0",
+    "react": "^19.2.7",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
