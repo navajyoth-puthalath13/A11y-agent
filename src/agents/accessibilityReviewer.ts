@@ -1,4 +1,4 @@
-import type { AccessibilityFinding, ChangedFile } from "../types.js";
+import type { AccessibilityFinding, ChangedFile, DeterministicFinding } from "../types.js";
 import type { AccessibilityLlmClient } from "../llm/accessibilityLlmClient.js";
 
 const MAX_FILE_CHARS = 12_000;
@@ -6,14 +6,17 @@ const MAX_FILE_CHARS = 12_000;
 export class AccessibilityReviewerAgent {
   constructor(private readonly llm: AccessibilityLlmClient) {}
 
-  async reviewChangedFiles(files: ChangedFile[]): Promise<AccessibilityFinding[]> {
+  async reviewChangedFiles(
+    files: ChangedFile[],
+    deterministicFindings: DeterministicFinding[]
+  ): Promise<AccessibilityFinding[]> {
     const reviewableFiles = files.filter((file) => file.status !== "removed" && isReviewablePath(file.path));
 
     if (reviewableFiles.length === 0) {
       return [];
     }
 
-    const prompt = buildPrompt(reviewableFiles);
+    const prompt = buildPrompt(reviewableFiles, deterministicFindings);
     const review = await this.llm.review(prompt);
 
     return review.findings.map((finding, index) => ({
@@ -23,7 +26,7 @@ export class AccessibilityReviewerAgent {
   }
 }
 
-function buildPrompt(files: ChangedFile[]): string {
+function buildPrompt(files: ChangedFile[], deterministicFindings: DeterministicFinding[]): string {
   const fileBlocks = files
     .map((file) => {
       const content = file.content?.slice(0, MAX_FILE_CHARS) ?? "";
@@ -38,10 +41,21 @@ function buildPrompt(files: ChangedFile[]): string {
     })
     .join("\n\n---\n\n");
 
-  return `You are a read-only accessibility reviewer for GitHub pull requests.
+  const deterministicBlock =
+    deterministicFindings.length > 0
+      ? JSON.stringify(deterministicFindings, null, 2)
+      : "[]";
+
+  return `You are a read-only accessibility reviewer and mentor for GitHub pull requests.
 
 Goal:
-Find likely WCAG accessibility issues introduced or touched by the changed files.
+Review accessibility issues introduced or touched by the changed files.
+
+Architecture:
+- Layer 1 already ran eslint-plugin-jsx-a11y and produced deterministic findings.
+- Your job is Layer 2: add accessibility reasoning and context that static analysis cannot provide.
+- Do not duplicate eslint-plugin-jsx-a11y findings as another linter.
+- When expanding on an ESLint finding, reference its rule ID in relatedRuleIds.
 
 Rules:
 - Do not suggest unrelated refactors.
@@ -58,18 +72,24 @@ Each finding must include:
 - wcagReference, such as "WCAG 2.2 1.1.1 Non-text Content"
 - filePath
 - lineNumber
+- relatedRuleIds: array of eslint-plugin-jsx-a11y rule IDs that this finding explains or extends
+- componentName: responsible React component name, or null if unclear
 - description
+- impact: explain why this matters for users who rely on assistive technologies
 - suggestedFix
 - confidence between 0 and 1
 
 Review focus:
-- Semantic HTML
-- Accessible names for controls and images
-- Keyboard operability and focus management
-- ARIA correctness
-- Form labels, errors, and instructions
-- Color and contrast risks visible from code
-- Reduced motion support
+- Explain why deterministic findings matter.
+- Link issues to the relevant WCAG guideline.
+- Identify the responsible React component.
+- Trace issues through component composition when possible.
+- Suggest fixes that match the existing code style.
+- Add only contextual issues static analysis is unlikely to catch.
+
+Deterministic eslint-plugin-jsx-a11y findings:
+
+${deterministicBlock}
 
 Changed files:
 

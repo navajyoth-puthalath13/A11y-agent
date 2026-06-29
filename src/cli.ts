@@ -7,6 +7,8 @@ import {
   parsePullRequestContextFromEnv
 } from "./github/pullRequestFiles.js";
 import { createGitHubModelsAccessibilityClient } from "./llm/githubModelsAccessibilityClient.js";
+import { JsxA11yLayer } from "./layers/deterministic/jsxA11yLayer.js";
+import { AccessibilityReviewPipeline } from "./pipeline/accessibilityReviewPipeline.js";
 import { printJsonReport } from "./report/jsonReporter.js";
 import type { ChangedFile } from "./types.js";
 
@@ -14,9 +16,10 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const files = await loadInputFiles(config.githubToken);
   const reviewer = new AccessibilityReviewerAgent(createLlmClient(config));
+  const pipeline = new AccessibilityReviewPipeline(new JsxA11yLayer(), reviewer);
 
-  const findings = await reviewer.reviewChangedFiles(files);
-  printJsonReport(findings);
+  const report = await pipeline.run(files);
+  printJsonReport(report);
 }
 
 function createLlmClient(config: ReturnType<typeof loadConfig>) {

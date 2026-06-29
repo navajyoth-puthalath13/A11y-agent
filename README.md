@@ -2,16 +2,23 @@
 
 This project is a learning-first implementation of a read-only AI agent that reviews GitHub pull requests for WCAG accessibility issues.
 
-## Phase 1: Single Reviewer
+## Current Architecture
 
-The first version has one agent:
+The current version uses a layered review pipeline:
 
-1. Read changed files from a pull request, or from local file paths during development.
-2. Send the relevant code and patch context to an LLM.
-3. Validate the model response as structured JSON.
-4. Print one machine-readable report.
+```text
+React component changes
+  -> eslint-plugin-jsx-a11y
+  -> normalized deterministic findings
+  -> AI accessibility reviewer
+  -> structured accessibility report
+```
 
-It does not modify files, create commits, or push code.
+Layer 1 is deterministic. It runs the standard `eslint-plugin-jsx-a11y` recommended rules and normalizes the ESLint output into baseline accessibility findings.
+
+Layer 2 is the AI reviewer. It receives the source code plus the deterministic findings and adds accessibility reasoning, WCAG context, assistive technology impact, responsible component names, and developer-friendly suggested fixes.
+
+It does not modify files, create commits, push code, or apply automatic fixes.
 
 ## Core Concepts
 
@@ -106,15 +113,34 @@ This first GitHub version does not post PR comments yet. That belongs to the lat
 
 ```json
 {
-  "findings": [
+  "summary": {
+    "deterministicFindingCount": 1,
+    "aiFindingCount": 1
+  },
+  "deterministicFindings": [
+    {
+      "id": "ESLINT-A11Y-001",
+      "source": "eslint-plugin-jsx-a11y",
+      "ruleId": "jsx-a11y/alt-text",
+      "severity": "error",
+      "filePath": "src/Button.tsx",
+      "lineNumber": 42,
+      "column": 7,
+      "message": "img elements must have an alt prop."
+    }
+  ],
+  "aiFindings": [
     {
       "id": "A11Y-001",
       "severity": "medium",
-      "wcagReference": "WCAG 2.2 4.1.2 Name, Role, Value",
+      "wcagReference": "WCAG 2.2 1.1.1 Non-text Content",
       "filePath": "src/Button.tsx",
       "lineNumber": 42,
-      "description": "Icon-only button does not expose an accessible name.",
-      "suggestedFix": "Add an aria-label or visible text that describes the button action.",
+      "relatedRuleIds": ["jsx-a11y/alt-text"],
+      "componentName": "Button",
+      "description": "The image lacks alternative text.",
+      "impact": "Screen reader users may miss important visual information.",
+      "suggestedFix": "Add meaningful alt text, or alt=\"\" if the image is decorative.",
       "confidence": 0.86
     }
   ]

@@ -1,6 +1,5 @@
-import type { AccessibilityFinding } from "../types.js";
+import type { StructuredAccessibilityReport } from "../types.js";
 
-export function printJsonReport(findings: AccessibilityFinding[]): void {
-  process.stdout.write(`${JSON.stringify({ findings }, null, 2)}\n`);
+export function printJsonReport(report: StructuredAccessibilityReport): void {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
-
