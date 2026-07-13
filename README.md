@@ -16,9 +16,11 @@ React component changes
 
 Layer 1 is deterministic. It runs the standard `eslint-plugin-jsx-a11y` recommended rules and normalizes the ESLint output into baseline accessibility findings.
 
-Layer 2 is the AI reviewer. It receives the source code plus the deterministic findings and adds accessibility reasoning, WCAG context, assistive technology impact, responsible component names, and developer-friendly suggested fixes.
+Layer 2 is currently a single AI accessibility reviewer. It receives the source code plus the deterministic findings and adds accessibility reasoning, WCAG context, assistive technology impact, responsible component names, and developer-friendly suggested fixes.
 
 It does not modify files, create commits, push code, or apply automatic fixes.
+
+This repository is designed to grow into a parent/sub-agent architecture, but the current implementation has not split the AI review into multiple specialist sub-agents yet. Today, `AccessibilityReviewPipeline` acts as the coordinator and calls one reviewer class, `AccessibilityReviewerAgent`.
 
 ## Core Concepts
 
@@ -34,7 +36,7 @@ An agent can review broader context and explain why something is likely a proble
 
 ### What is an orchestrator?
 
-An orchestrator, or parent agent, coordinates work. In later phases it will read the pull request, decide which specialist agents should run, collect their findings, remove duplicates, and generate the final report.
+An orchestrator, or parent agent, coordinates work. In later phases it will read the pull request, decide which specialist agents should run, pass each one the relevant files and context, collect their findings, remove duplicates, and generate the final report.
 
 The parent agent should not perform accessibility analysis itself. Its job is coordination.
 
@@ -42,9 +44,31 @@ The parent agent should not perform accessibility analysis itself. Its job is co
 
 A sub-agent is a specialized reviewer with a narrow responsibility. For example, a Keyboard Navigation Agent only reviews keyboard access and focus behavior. A Forms Agent only reviews labels, errors, required fields, and instructions.
 
+Sub-agents can receive shared context from the parent agent. That context can include product-specific guidance, such as custom accessibility rules for Care or another product area, component library conventions, design-system constraints, or review preferences. The important rule is that custom guidance should be passed as review context, while the sub-agent still returns the same structured JSON finding format.
+
 ### Why multiple specialized agents?
 
 One large prompt becomes hard to test, hard to improve, and more likely to mix unrelated concerns. Smaller agents have clearer instructions and can be run only when relevant files change. This also makes the system easier to debug because each finding has a source reviewer.
+
+## Planned Sub-Agent Shape
+
+The intended architecture is:
+
+```text
+Pull request files
+  -> parent accessibility orchestrator
+  -> deterministic checks
+  -> specialist sub-agents
+       -> keyboard navigation reviewer
+       -> forms reviewer
+       -> semantics reviewer
+       -> media and content reviewer
+       -> product/custom guide reviewer
+  -> finding merge and de-duplication
+  -> structured accessibility report
+```
+
+The custom guide reviewer is where product-specific instructions should fit. For example, if Care has a custom guide for required field messaging, focus behavior, or approved component patterns, the parent agent can pass that guide into the relevant sub-agent along with the changed files. The guide should influence findings, but it should not replace WCAG references or the common output schema.
 
 ### How do GitHub Actions fit?
 
