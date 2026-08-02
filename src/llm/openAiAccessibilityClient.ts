@@ -1,7 +1,7 @@
 import { accessibilityReviewSchema, type AccessibilityReview } from "../types.js";
 import type { AccessibilityLlmClient } from "./accessibilityLlmClient.js";
 
-type GitHubModelsResponse = {
+type OpenAiChatCompletionsResponse = {
   choices?: Array<{
     message?: {
       content?: string;
@@ -9,19 +9,17 @@ type GitHubModelsResponse = {
   }>;
 };
 
-export function createGitHubModelsAccessibilityClient(params: {
-  token: string;
+export function createOpenAiAccessibilityClient(params: {
+  apiKey: string;
   model: string;
 }): AccessibilityLlmClient {
   return {
     async review(input: string): Promise<AccessibilityReview> {
-      const response = await fetch("https://models.github.ai/inference/chat/completions", {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${params.token}`,
-          "Content-Type": "application/json",
-          "X-GitHub-Api-Version": "2022-11-28"
+          Authorization: `Bearer ${params.apiKey}`,
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
           model: params.model,
@@ -35,20 +33,21 @@ export function createGitHubModelsAccessibilityClient(params: {
               content: input
             }
           ],
+          response_format: { type: "json_object" },
           temperature: 0
         })
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`GitHub Models request failed: ${response.status} ${errorText}`);
+        throw new Error(`OpenAI request failed: ${response.status} ${errorText}`);
       }
 
-      const body = (await response.json()) as GitHubModelsResponse;
+      const body = (await response.json()) as OpenAiChatCompletionsResponse;
       const outputText = body.choices?.[0]?.message?.content;
 
       if (!outputText) {
-        throw new Error("GitHub Models response did not include message content.");
+        throw new Error("OpenAI response did not include message content.");
       }
 
       const parsed = JSON.parse(stripMarkdownCodeFence(outputText)) as unknown;

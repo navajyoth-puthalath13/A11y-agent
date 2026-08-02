@@ -7,7 +7,7 @@ import {
   parsePullRequestContext,
   parsePullRequestContextFromEnv
 } from "./github/pullRequestFiles.js";
-import { createGitHubModelsAccessibilityClient } from "./llm/githubModelsAccessibilityClient.js";
+import { createOpenAiAccessibilityClient } from "./llm/openAiAccessibilityClient.js";
 import { JsxA11yLayer } from "./layers/deterministic/jsxA11yLayer.js";
 import { AccessibilityReviewPipeline } from "./pipeline/accessibilityReviewPipeline.js";
 import { printJsonReport } from "./report/jsonReporter.js";
@@ -24,9 +24,9 @@ async function main(): Promise<void> {
 }
 
 function createLlmClient(config: ReturnType<typeof loadConfig>) {
-  return createGitHubModelsAccessibilityClient({
-    token: config.githubModelsToken ?? "",
-    model: config.githubModelsModel
+  return createOpenAiAccessibilityClient({
+    apiKey: config.openAiApiKey ?? "",
+    model: config.openAiModel
   });
 }
 

@@ -96,7 +96,7 @@ Create `.env`:
 cp .env.example .env
 ```
 
-Set `GITHUB_MODELS_TOKEN` and `GITHUB_MODELS_MODEL`, then review local files:
+Set `OPENAI_API_KEY` and `OPENAI_MODEL`, then review local files:
 
 ```bash
 npm run dev -- --files src/example.tsx
@@ -105,7 +105,7 @@ npm run dev -- --files src/example.tsx
 Review a pull request from a checked-out repository:
 
 ```bash
-GITHUB_MODELS_TOKEN=... GITHUB_TOKEN=... npm run dev -- --repo owner/repo --pr 123
+OPENAI_API_KEY=... GITHUB_TOKEN=... npm run dev -- --repo owner/repo --pr 123
 ```
 
 You can also set `GITHUB_REPOSITORY` and `PR_NUMBER` in `.env` instead of passing `--repo` and `--pr`.
@@ -128,10 +128,9 @@ The workflow is read-only. It uses:
 permissions:
   contents: read
   pull-requests: read
-  models: read
 ```
 
-The `models: read` permission lets the workflow call GitHub Models through the built-in `GITHUB_TOKEN`.
+Add `OPENAI_API_KEY` as a repository secret so the workflow can call OpenAI for the AI review. The built-in `GITHUB_TOKEN` is still used only for read-only repository and pull request access.
 
 This first GitHub version does not post PR comments yet. That belongs to the later GitHub integration phase.
 

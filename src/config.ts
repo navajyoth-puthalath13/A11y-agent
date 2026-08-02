@@ -1,21 +1,21 @@
 import "dotenv/config";
 
 export type AppConfig = {
-  githubModelsToken?: string;
-  githubModelsModel: string;
+  openAiApiKey?: string;
+  openAiModel: string;
   githubToken?: string;
 };
 
 export function loadConfig(): AppConfig {
-  const githubModelsToken = process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN;
+  const openAiApiKey = process.env.OPENAI_API_KEY;
 
-  if (!githubModelsToken) {
-    throw new Error("GITHUB_MODELS_TOKEN or GITHUB_TOKEN is required.");
+  if (!openAiApiKey) {
+    throw new Error("OPENAI_API_KEY is required.");
   }
 
   return {
-    githubModelsToken,
-    githubModelsModel: process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4.1-mini",
+    openAiApiKey,
+    openAiModel: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
     githubToken: process.env.GITHUB_TOKEN
   };
 }
