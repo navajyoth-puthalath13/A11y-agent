@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import {
   createGitHubClient,
   getChangedFilesFromPullRequest,
+  parsePullRequestContext,
   parsePullRequestContextFromEnv
 } from "./github/pullRequestFiles.js";
 import { createGitHubModelsAccessibilityClient } from "./llm/githubModelsAccessibilityClient.js";
@@ -55,8 +56,19 @@ async function loadInputFiles(githubToken?: string): Promise<ChangedFile[]> {
 
   return getChangedFilesFromPullRequest({
     octokit: createGitHubClient(githubToken),
-    context: parsePullRequestContextFromEnv()
+    context: parsePullRequestContextFromArgs() ?? parsePullRequestContextFromEnv()
   });
+}
+
+function parsePullRequestContextFromArgs() {
+  const repository = getArgValue("--repo") ?? getArgValue("--repository");
+  const pullNumber = getArgValue("--pr") ?? getArgValue("--pr-number");
+
+  if (!repository && !pullNumber) {
+    return undefined;
+  }
+
+  return parsePullRequestContext({ repository, pullNumber });
 }
 
 async function resolveLocalFilePath(path: string): Promise<string> {

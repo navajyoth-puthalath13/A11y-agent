@@ -32,16 +32,18 @@ export async function getChangedFilesFromPullRequest(params: {
   );
 }
 
-export function parsePullRequestContextFromEnv(): PullRequestContext {
-  const repository = process.env.GITHUB_REPOSITORY;
-  const pullNumber = process.env.PR_NUMBER ?? process.env.GITHUB_PR_NUMBER;
+export function parsePullRequestContext(params: {
+  repository?: string;
+  pullNumber?: string;
+}): PullRequestContext {
+  const { repository, pullNumber } = params;
 
   if (!repository || !repository.includes("/")) {
-    throw new Error("GITHUB_REPOSITORY must be set as owner/repo.");
+    throw new Error("Repository must be set as owner/repo.");
   }
 
   if (!pullNumber || Number.isNaN(Number(pullNumber))) {
-    throw new Error("PR_NUMBER or GITHUB_PR_NUMBER must be set.");
+    throw new Error("Pull request number must be set.");
   }
 
   const [owner, repo] = repository.split("/");
@@ -51,6 +53,13 @@ export function parsePullRequestContextFromEnv(): PullRequestContext {
     repo,
     pullNumber: Number(pullNumber)
   };
+}
+
+export function parsePullRequestContextFromEnv(): PullRequestContext {
+  return parsePullRequestContext({
+    repository: process.env.GITHUB_REPOSITORY,
+    pullNumber: process.env.PR_NUMBER ?? process.env.GITHUB_PR_NUMBER
+  });
 }
 
 async function readWorkspaceFile(workspacePath: string, relativePath: string): Promise<string | undefined> {
@@ -80,4 +89,3 @@ function normalizeStatus(status: string): ChangedFile["status"] {
       return "modified";
   }
 }
-

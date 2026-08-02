@@ -105,8 +105,10 @@ npm run dev -- --files src/example.tsx
 Review a pull request from a checked-out repository:
 
 ```bash
-GITHUB_MODELS_TOKEN=... GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo PR_NUMBER=123 npm run dev
+GITHUB_MODELS_TOKEN=... GITHUB_TOKEN=... npm run dev -- --repo owner/repo --pr 123
 ```
+
+You can also set `GITHUB_REPOSITORY` and `PR_NUMBER` in `.env` instead of passing `--repo` and `--pr`.
 
 ## Run In GitHub
 
