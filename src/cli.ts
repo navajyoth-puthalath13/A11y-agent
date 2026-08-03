@@ -26,7 +26,8 @@ async function main(): Promise<void> {
 function createLlmClient(config: ReturnType<typeof loadConfig>) {
   return createOpenAiAccessibilityClient({
     apiKey: config.openAiApiKey ?? "",
-    model: config.openAiModel
+    model: config.openAiModel,
+    baseUrl: config.openAiBaseUrl
   });
 }
 
