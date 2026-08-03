@@ -12,10 +12,13 @@ type OpenAiChatCompletionsResponse = {
 export function createOpenAiAccessibilityClient(params: {
   apiKey: string;
   model: string;
+  baseUrl?: string;
 }): AccessibilityLlmClient {
+  const baseUrl = (params.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+
   return {
     async review(input: string): Promise<AccessibilityReview> {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${params.apiKey}`,
