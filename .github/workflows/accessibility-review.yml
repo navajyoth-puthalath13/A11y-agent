@@ -1,4 +1,4 @@
-name: Accessibility Review Agent
+name: Accessibility Review
 
 on:
   pull_request:
@@ -6,52 +6,311 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
+
+# A new push supersedes any in-flight review for the same PR, so the comment
+# always reflects the latest commit instead of a racing older run.
+concurrency:
+  group: a11y-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  accessibility-review:
-    name: Review accessibility changes
+  a11y-review:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
 
     steps:
-      - name: Checkout pull request
+      - name: Checkout portfolio repository
         uses: actions/checkout@v4
+
+      - name: Checkout accessibility review agent
+        uses: actions/checkout@v4
+        with:
+          repository: navajyoth-puthalath13/A11y-agent
+          ref: main
+          path: .github/actions/a11y-agent
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
+          cache-dependency-path: .github/actions/a11y-agent/package-lock.json
 
-      - name: Install dependencies
+      - name: Install accessibility review agent dependencies
+        working-directory: .github/actions/a11y-agent
         run: npm ci
 
-      - name: Typecheck
+      - name: Typecheck accessibility review agent
+        working-directory: .github/actions/a11y-agent
         run: npm run typecheck
 
-      - name: Build
+      - name: Build accessibility review agent
+        working-directory: .github/actions/a11y-agent
         run: npm run build
 
       - name: Run accessibility review agent
+        id: accessibility_review
+        working-directory: .github/actions/a11y-agent
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: gpt-4.1-mini
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_MODEL: llama-3.3-70b-versatile
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: npm start | tee accessibility-review.json
-
-      - name: Add report to job summary
-        if: always()
         run: |
-          {
-            echo "## Accessibility Review Agent"
-            echo
-            if [ -f accessibility-review.json ]; then
-              echo '```json'
-              cat accessibility-review.json
-              echo '```'
-            else
-              echo "No report was produced."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          npm start --silent > accessibility-review.json
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          if [ -f accessibility-review.json ]; then
+            cat accessibility-review.json
+          else
+            echo "No report file produced."
+          fi
+
+      - name: Post accessibility review comment
+        id: comment
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          REVIEW_STATUS: ${{ steps.accessibility_review.outputs.status }}
+          REPORT_PATH: .github/actions/a11y-agent/accessibility-review.json
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require("fs");
+            const marker = "<!-- a11y-review -->";
+            const reportPath = process.env.REPORT_PATH;
+            const reviewStatus = Number(process.env.REVIEW_STATUS || "1");
+            const reviewedSha = (process.env.COMMIT_SHA || "").slice(0, 7);
+
+            let report = null;
+            let parseError = null;
+            let rawReport = "";
+
+            if (fs.existsSync(reportPath)) {
+              rawReport = fs.readFileSync(reportPath, "utf8").trim();
+              if (rawReport.length > 0) {
+                try {
+                  report = JSON.parse(rawReport);
+                } catch (error) {
+                  parseError = error;
+                }
+              }
+            }
+
+            const deterministicFindings = report?.deterministicFindings || [];
+            const aiFindings = report?.aiFindings || [];
+            const findingCount = deterministicFindings.length + aiFindings.length;
+            const fileCount = new Set(
+              [...deterministicFindings, ...aiFindings].map((f) => f.filePath)
+            ).size;
+
+            const cell = (v) => String(v ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+
+            const sevBadge = (s) => {
+              const t = String(s ?? "").toLowerCase();
+              if (t.includes("critical")) return "🔴 **Critical**";
+              if (t.includes("high")) return "🟠 **High**";
+              if (t.includes("low")) return "🔵 **Low**";
+              return "🟡 **Medium**";
+            };
+
+            const sevCount = (sev) =>
+              aiFindings.filter((f) =>
+                String(f.severity || "").toLowerCase().includes(sev)
+              ).length;
+
+            // Clean, scannable findings table — long explanations live outside it.
+            const aiTable = aiFindings.length > 0 ? [
+              "### 🧠 Findings",
+              "",
+              "| Severity | Location | Issue | Suggested fix | WCAG |",
+              "| --- | --- | --- | --- | --- |",
+              ...aiFindings.slice(0, 20).map((f) =>
+                `| ${sevBadge(f.severity)} | \`${cell(f.filePath)}:${f.lineNumber || 1}\` | ${cell(f.description)} | ${cell(f.suggestedFix)} | ${cell(f.wcagReference)} |`
+              ),
+              "",
+              `_Showing ${Math.min(aiFindings.length, 20)} of ${aiFindings.length} findings._`,
+              "",
+            ].join("\n") : null;
+
+            // Impact and deeper explanation, tucked away so the table stays tight.
+            const aiDetails = aiFindings.length > 0 ? [
+              "<details>",
+              `<summary>View impact & full explanation (${aiFindings.length})</summary>`,
+              "",
+              ...aiFindings.map((f, i) =>
+                `**${i + 1}. \`${cell(f.filePath)}:${f.lineNumber || 1}\`** — ${sevBadge(f.severity)} (${cell(f.wcagReference)})\n\n${cell(f.impact)}`
+              ),
+              "",
+              "</details>",
+            ].join("\n") : null;
+
+            // Automated (ESLint jsx-a11y) results, collapsed as a secondary section.
+            const autoSection = deterministicFindings.length > 0 ? [
+              "",
+              "<details>",
+              `<summary>🔧 Automated checks — ESLint jsx-a11y (${deterministicFindings.length})</summary>`,
+              "",
+              "| Location | Rule | Issue |",
+              "| --- | --- | --- |",
+              ...deterministicFindings.slice(0, 20).map((f) =>
+                `| \`${cell(f.filePath)}:${f.lineNumber || 1}\` | ${cell(f.ruleId)} | ${cell(f.message)} |`
+              ),
+              "",
+              "</details>",
+              "",
+            ].join("\n") : null;
+
+            const footer = [
+              "",
+              "---",
+              "",
+              `_Reviewed commit: \`${reviewedSha || "n/a"}\`_`,
+              "",
+              `_Powered by [Accessibility Review](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})._`,
+            ].join("\n");
+
+            let body;
+
+            if (!report) {
+              const errorText = [report?.error, report?.message, parseError?.message, rawReport.slice(0, 2000)].filter(Boolean).join("\n");
+              const isModelOutage = /github_models_retirement_brownout|temporarily unavailable|model.*unavailable|service unavailable|timeout/i.test(errorText);
+              body = [
+                marker,
+                "## ♿ Accessibility Review",
+                "",
+                "> [!NOTE]",
+                "> **Status: Skipped**",
+                "> Could not produce a structured report — this is informational only and does not block the PR.",
+                isModelOutage
+                  ? "> The AI model provider appears temporarily unavailable."
+                  : "> Please check the workflow logs.",
+              ].join("\n");
+              core.setOutput("finding_count", "0");
+            } else if (findingCount > 0) {
+              const summaryLine = [
+                `**Files reviewed:** ${fileCount}`,
+                `**Issues found:** ${findingCount}`,
+                ...(sevCount("critical") ? [`**Critical:** ${sevCount("critical")}`] : []),
+                ...(sevCount("high") ? [`**High:** ${sevCount("high")}`] : []),
+                ...(sevCount("medium") ? [`**Medium:** ${sevCount("medium")}`] : []),
+                ...(sevCount("low") ? [`**Low:** ${sevCount("low")}`] : []),
+              ].join(" · ");
+
+              body = [
+                marker,
+                "## ♿ Accessibility Review",
+                "",
+                "> [!WARNING]",
+                "> **Status: Needs attention**",
+                "> " + (findingCount === 1
+                  ? "1 accessibility issue was found."
+                  : `${findingCount} accessibility issues were found.`),
+                "> These findings should be addressed before merging.",
+                "",
+                summaryLine,
+                "",
+                "_Tackle Critical and High first._",
+                "",
+                aiTable,
+                aiDetails,
+                autoSection,
+                "",
+                "### Next steps",
+                "",
+                "1. Address the findings above, then push a commit.",
+                "2. The review re-runs automatically and updates this comment.",
+                "",
+                "> [!WARNING]",
+                "> Accessibility issues were found. Please address the findings below and re-run the review.",
+                footer,
+              ].filter((line) => line !== null).join("\n");
+              core.setOutput("finding_count", String(findingCount));
+            } else {
+              body = [
+                marker,
+                "## ♿ Accessibility Review",
+                "",
+                "> [!TIP]",
+                "> **Status: Passed — good to go.**",
+                "",
+                "No accessibility issues were detected in this pull request.",
+                "",
+                "This review passed all configured accessibility checks.",
+                "",
+                `**Files reviewed:** ${fileCount}`,
+                footer,
+              ].join("\n");
+              core.setOutput("finding_count", "0");
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const existing = comments.data.find((comment) => comment.user.type === "Bot" && comment.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+            if (findingCount > 0) {
+              core.warning(`Accessibility review found ${findingCount} issue(s). See the PR comment.`);
+            } else if (reviewStatus !== 0) {
+              core.warning("Accessibility review did not complete cleanly; marked non-blocking.");
+            }
+
+      - name: Fail PR check if accessibility issues were found
+        if: steps.comment.outputs.finding_count != '' && steps.comment.outputs.finding_count != '0'
+        run: |
+          echo "::error::Accessibility issues were found. This pull request is blocked until they are resolved. See the Accessibility Review comment for details."
+          exit 1
+
+      - name: Write review to job summary
+        if: always()
+        working-directory: .github/actions/a11y-agent
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = "accessibility-review.json";
+            const lines = ["## ♿ Accessibility Review", ""];
+            let report = null;
+            if (fs.existsSync(p)) {
+              try { report = JSON.parse(fs.readFileSync(p, "utf8")); } catch (e) { report = null; }
+            }
+            if (!report) {
+              lines.push("> No report produced — check workflow logs.");
+            } else {
+              const det = report.deterministicFindings || [];
+              const ai = report.aiFindings || [];
+              const total = det.length + ai.length;
+              const files = new Set([...det, ...ai].map((f) => f.filePath)).size;
+              lines.push(`**Status:** ${total > 0 ? "⚠ Needs attention" : "✅ Passed"}`);
+              lines.push("");
+              lines.push(`- **Files reviewed:** ${files}`);
+              lines.push(`- **Issues found:** ${total}`);
+              lines.push(`- **Sources:** ${ai.length} AI · ${det.length} automated`);
+              lines.push(`- **Reviewed commit:** \`${process.env.COMMIT_SHA || "n/a"}\``);
+              lines.push("");
+              if (total > 0) {
+                for (const f of ai) {
+                  lines.push(`- **${f.severity}** — \`${f.filePath}:${f.lineNumber || 1}\` — ${String(f.description || "").split("\n")[0]}`);
+                }
+                lines.push("");
+                lines.push("See the PR comment for details and suggested fixes.");
+              } else {
+                lines.push("No accessibility issues detected. Good to go.");
+              }
+            }
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          '
