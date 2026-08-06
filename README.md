@@ -112,27 +112,111 @@ You can also set `GITHUB_REPOSITORY` and `PR_NUMBER` in `.env` instead of passin
 
 ## Run In GitHub
 
-This project includes a GitHub Actions workflow at `.github/workflows/accessibility-review.yml`.
+The complete setup behaves like this:
 
-On every pull request open, update, or reopen, GitHub Actions will:
+```text
+PR opened / updated
+  -> GitHub Actions workflow (in your portfolio repo)
+  -> checks out the A11y-agent worker
+  -> installs dev deps, typechecks, builds
+  -> runs the review agent (ESLint + AI) against the PR diff
+  -> writes a JSON report
+  -> posts/updates a comment on the PR, adds a step summary
+  -> fails the PR check if any accessibility issue was found
+```
 
-1. Check out the pull request.
-2. Install dependencies.
-3. Typecheck and build the TypeScript project.
-4. Run the accessibility review agent.
-5. Print the JSON report into the workflow job summary.
+### Current vs. Updated workflow
 
-The workflow is read-only. It uses:
+| | Current (in-repo workflow) | Updated (recommended workflow) |
+| --- | --- | --- |
+| PR trigger | opened, sync, reopened | opened, sync, reopened, **ready_for_review**, skips drafts |
+| Resilience | races on new pushes | **`concurrency` cancels stale runs** so the comment always matches the latest commit |
+| Report output | raw JSON in the job summary | **Structured PR comment + step summary** |
+| Comment handling | none | Creates **and updates** one marker comment |
+| Severity | none | Critical / High / **Low badges** + WCAG refs |
+| AI findings | raw | Table + collapsible details + next steps |
+| PR gating | none (advisory only) | **`exit 1` blocks the PR** when findings exist |
+| LLM provider | OpenAI only | **Free Groq or GitHub Models, or OpenAI** (OpenAI-compatible API) |
+| Permissions | read-only | `issues/pull-requests: write` (to post comments) |
+
+### Requirements
+
+- Two repositories: a **portfolio/consumer repo** that holds the workflow file, and this **A11y-agent** repo that is checked out and executed as the worker.
+- The consumer repo needs the secrets below (see [Set Up Secrets](#set-up-secrets)).
+- The workflow checks out `navajyoth-puthalath13/A11y-agent` at `main` into `.github/actions/a11y-agent`, so the worker repo must be public (or accessible to the runner).
+
+> Note: If you already store this workflow inside the A11y-agent repo for testing, it works the same way — the checkout just pulls the same repo into a sub-folder.
+
+### 1. Add the workflow file
+
+Copy the workflow into the consumer repository at:
+
+```text
+.github/workflows/accessibility-review.yml
+```
+
+The workflow is self-contained: it checks out both the consumer code and the **A11y-agent worker**, sets up Node **24**, runs `npm ci`, `typecheck`, `build`, and finally `npm start`.
 
 ```yaml
 permissions:
   contents: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
 ```
 
-Add `OPENAI_API_KEY` as a repository secret so the workflow can call OpenAI for the AI review. The built-in `GITHUB_TOKEN` is still used only for read-only repository and pull request access.
+`issues: write` and `pull-requests: write` let the workflow post and update the PR comment. `contents: read` keeps it from modifying repository files.
 
-This first GitHub version does not post PR comments yet. That belongs to the later GitHub integration phase.
+The `concurrency` block cancels any in-flight run for the same PR when a new push arrives, so the comment always reflects the latest commit:
+
+```yaml
+concurrency:
+  group: a11y-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+```
+
+### 2. Set up secrets
+
+Open the consumer repo in a browser and create each secret under:
+
+```text
+Settings -> Secrets and variables -> Actions -> New repository secret
+```
+
+| Secret | Required | What it is |
+| --- | --- | --- |
+| `GROQ_API_KEY` | Yes (or a model key below) | Free API key from [console.groq.com](https://console.groq.com). Used as the **model provider** key. |
+| `OPENAI_API_KEY` | Optional | Paid OpenAI key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys). Overrides Groq if both are set. |
+| `GITHUB_MODELS_TOKEN` | Optional | Can use the free **GitHub Models** endpoint instead. |
+| `GITHUB_TOKEN` | Automatic | Provided by the Actions runtime (`${{ github.token }}`). No setup needed — used for checkout, PR context, and posting the comment. |
+
+The review agent picks the provider automatically from whichever key is set (see below).
+
+### 3. Configure the model
+
+The workflow passes the model as runner env:
+
+```yaml
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  OPENAI_MODEL: llama-3.3-70b-versatile
+```
+
+Provider selection in `src/config.ts` is priority-based:
+
+- If `OPENAI_API_KEY` is set → **OpenAI** (`https://api.openai.com/v1`, default `gpt-4.1-mini`).
+- Else if `GROQ_API_KEY` is set → **Groq** (`https://api.groq.com/openai/v1`, default `llama-3.3-70b-versatile`).
+- Else if `GITHUB_MODELS_TOKEN`/`GITHUB_TOKEN` is set → **GitHub Models** (`https://models.github.ai/inference`, default `openai/gpt-4o-mini`).
+
+You can override the model and endpoint with `OPENAI_MODEL` and `OPENAI_BASE_URL`, as the workflow does with `OPENAI_MODEL: llama-3.3-70b-versatile`.
+
+### 4. See the results
+
+- The workflow posts **one** comment on the PR (look for the `<!-- a11y-review -->` marker). Re-runs update that same comment instead of adding duplicates.
+- A **job summary** is written for the workflow run.
+- If any finding is reported, the `Fail PR check` step prints an error and exits `1`, marking the PR as **blocked** until the issues are resolved and the review re-runs.
+- If no findings are found, the comment reports **Passed** and the check stays green.
+
+> The workflow never edits files, creates commits, or pushes code. The review is advisory in spirit — only the optional `Fail PR check` step gates the PR, and you can remove that step if you prefer a non-blocking review.
 
 ## JSON Output
 
