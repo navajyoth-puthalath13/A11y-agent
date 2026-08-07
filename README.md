@@ -218,6 +218,13 @@ You can override the model and endpoint with `OPENAI_MODEL` and `OPENAI_BASE_URL
 
 > The workflow never edits files, creates commits, or pushes code. The review is advisory in spirit — only the optional `Fail PR check` step gates the PR, and you can remove that step if you prefer a non-blocking review.
 
+### Troubleshooting
+
+- **Comment shows "Status: Skipped".** The runner could not produce a structured report. Look at the workflow logs for the actual error. If the log mentions `github_models_retirement_brownout`, `temporarily unavailable`, or `model ... unavailable`, the model provider is momentarily down and the review is simply marked as informational — it does not block the PR.
+- **Review still ran but nothing was blocked.** Confirm you set a model key secret and that the `Fail PR check` step is present. If you removed that step, the review comments but never gates the PR.
+- **Finding count is 0 but you expected findings.** The AI review is advisory; the deterministic ESLint results appear collapsed under "Automated checks". If both are empty, the changed files likely contain no JSX accessibility issues.
+- **Check the run log for the raw report.** The full JSON report is written to `accessibility-review.json` during the run, so the workflow log is the best place to debug unexpected output.
+
 ## JSON Output
 
 ```json
